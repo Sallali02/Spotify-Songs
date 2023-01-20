@@ -1,0 +1,237 @@
+---
+title: "Final Project"
+author: "Sara Allali, Ariel Kuo, Tess Kramer, Aditi Anthapur"
+subtitle: MGSC 310 Final Project
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+```{r setup, include=FALSE}
+# Please leave this code chunk as is. It makes some slight formatting changes to alter the output to be more aesthetically pleasing. 
+library(knitr)
+# Change the number in set seed to your own favorite number
+set.seed(1818)
+options(width=70)
+options(scipen=99)
+# this sets text outputted in code chunks to small
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=TRUE, size = "vsmall")  
+opts_chunk$set(message = FALSE,                                          
+               warning = FALSE,
+               # "caching" stores objects in code chunks and only rewrites if you change things
+               cache = FALSE,                               
+               # automatically downloads dependency files
+               autodep = TRUE,
+               # 
+               cache.comments = FALSE,
+               # 
+               collapse = TRUE,
+               # change fig.width and fig.height to change the code height and width by default
+               fig.width = 5.5,  
+               fig.height = 4.5,
+               fig.align='center')
+
+
+```
+
+```{r setup-2}
+# Always print this out before your assignment
+sessionInfo()
+getwd()
+
+```
+
+```{r setup-3}
+# load all your libraries in this chunk 
+library('tidyverse')
+library('ggplot2')
+library('dplyr')
+library('readr')
+library('sjPlot')
+library('tidymodels')
+library('rsample')
+library('forcats')
+library('ISLR')
+library('glmnet')
+library('glmnetUtils')
+library('partykit')
+library('PerformanceAnalytics')
+library('rpart')       
+library('rpart.plot')
+library('randomForest')
+library('vtable')
+library('formatR')
+library('coefplot')
+```
+
+**Cleaning The Data**
+```{r}
+#cleaning the data set
+spotify_uncleaned <- read_csv("datasets/spotify_top_charts_22.csv")
+
+#str(spotify)
+
+spotify <- spotify_uncleaned %>% 
+  select(-c(uri))%>%
+  mutate(time_signature = as.factor(time_signature))%>%
+  mutate(weeks_on_chart = log(weeks_on_chart))%>%
+  drop_na()
+
+```
+
+```{r}
+#plot/graph 1
+ggplot(data = spotify, aes(x = weeks_on_chart, y = energy))+
+         geom_point(alpha=0.3,color="green")+
+  theme_minimal()+
+  theme_bw(base_size = 20)+
+  labs(x="Number of Weeks on Chart", y = "Energy of the Song")+
+  ggtitle("# of Weeks on Chart & Energy Level")+
+  geom_smooth(method = "lm")
+
+```
+```{r}
+#plot/graph 2
+ggplot(data = spotify, aes(x = weeks_on_chart, y = time_signature))+
+         geom_point(alpha=0.3,color="green")+
+  theme_minimal()+
+  theme_bw(base_size = 20)+
+  labs(x="Number of Weeks on Chart", y = "Time of Signature")+
+  ggtitle("# of Weeks on Chart & Time of Signature")+
+  facet_wrap(~time_signature)
+
+```
+**Sumtable of our Data**
+```{r}
+#sumtable
+sumtable(spotify)
+```
+
+**Splitting Data into Training & Testing Sets**
+```{r}
+#splitting data into training & testing sets
+spotify_split <- initial_split(spotify, prop = 0.75) 
+
+spotify_train <- training(spotify_split)
+spotify_test <- testing(spotify_split)
+
+```
+
+**Linear Regression Model**
+```{r}
+#Linear Regression Model
+lin_model <- lm(weeks_on_chart ~ peak_rank +danceability + energy+ key+ 
+                loudness+ mode+ speechiness+ acousticness+
+                instrumentalness+ liveness+ tempo+ 
+                time_signature+ duration_ms,
+                data = spotify_train)
+#summary
+summary(lin_model)
+
+# predictions
+preds_train <- predict(lin_model, newdata = spotify_train)
+preds_test <- predict(lin_model, newdata = spotify_test)
+
+# calculate root mean squared error (RMSE)
+get_rmse <- function(true, predictions){
+  sqrt(mean((true - predictions)^2))
+}
+# calculate RMSE in the testing and training sets
+test_rmse <- get_rmse(spotify_test$weeks_on_chart, preds_test)
+train_rmse <- get_rmse(spotify_train$weeks_on_chart, preds_train)
+cat("Test Set RMSE is:",test_rmse, "\nTrain Set RMSE is:",train_rmse)
+
+# calculate MSE for the testing & training sets
+test_mse <- mean((spotify_test$weeks_on_chart - predict(lin_model, spotify_test)) ^ 2)
+train_mse <- mean((spotify_train$weeks_on_chart - predict(lin_model, spotify_train)) ^ 2)
+cat("\nTest Set MSE is:",test_mse, "\nTrain Set MSE is:",train_mse)
+
+tab_model(lin_model)
+tidy(lin_model)
+plot_model(lin_model)
+
+plot(x=predict(lin_model), y = spotify_train$weeks_on_chart,
+     xlab = 'Predicted Values',
+     ylab = 'Actual Values',
+     main = 'Predicted Vs. Actual Values',
+     abline(a=0, b=1))
+ggplot(spotify_train, aes(x=predict(lin_model), y=weeks_on_chart)) + 
+  geom_point() +
+  theme_minimal(base_size = 19)+
+  geom_abline(intercept=-1, slope=2) +
+  labs(x='Predicted Values', y='Actual Values', title='Predicted vs. Actual Values')
+
+values <- data.frame(actual=spotify_train$weeks_on_chart, predicted=predict(lin_model))
+values
+```
+
+**Logistic Regression Model**
+```{r}
+#Logistic Regression Model
+  # mode is a binary variable
+logit_model <- glm(mode ~ danceability + energy + key + 
+                loudness + peak_rank + speechiness + acousticness +
+                instrumentalness + liveness + tempo + 
+                time_signature + duration_ms,
+                family = binomial,
+                data = spotify_train)
+
+# summary over the model to see the model estimates
+summary(logit_model)
+
+# Generate predictions in the test and training sets
+preds_train <- predict(logit_model, newdata = spotify_train)
+preds_test <- predict(logit_model, newdata = spotify_test)
+# Calculate root mean squared error (RMSE)
+get_rmse <- function(true, predictions){
+  sqrt(mean((true - predictions)^2))
+}
+# Calculate RMSE in the testing and training sets
+get_rmse(spotify_train$mode, preds_train)
+get_rmse(spotify_test$mode, preds_test)
+```
+
+**Lasso Regression Model**
+```{r}
+#Lasso Regression Model
+lasso_mod_spotify <- cv.glmnet(weeks_on_chart ~ .,
+                               data = spotify_train  %>%
+                                 select(-track_name,-artist_names),
+                               alpha = 1)
+print(lasso_mod_spotify)
+plot(lasso_mod_spotify)
+
+#coefficients 
+coef(lasso_mod_spotify, 
+     s = lasso_mod_spotify$lambda.1se) %>% 
+  round(3)
+
+coef(lasso_mod_spotify, 
+     s = lasso_mod_spotify$lambda.min) %>% 
+  round(3)
+
+#coef plot
+coefpath(lasso_mod_spotify)
+```
+
+**Ridge Regression Model**
+```{r}
+#Ridge Regression Model
+ridge_mod <- cv.glmnet(weeks_on_chart ~ .,
+                       data = spotify_train %>% select(-artist_names, -track_name),
+                       alpha = 0)
+
+#graph
+plot(ridge_mod)
+
+#ridge coefficient vector - lambda.1se
+coef(ridge_mod, s = ridge_mod$lambda.1se) %>% 
+  round(3)
+
+#ridge coefficient vector - lambda.min
+coef(ridge_mod, s = ridge_mod$lambda.min) %>% 
+  round(3)
+
+#coefpath
+coefpath(ridge_mod)
+```
